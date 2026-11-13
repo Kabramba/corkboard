@@ -103,9 +103,12 @@ html, body { margin: 0; height: 100%; overflow: hidden; font-family: var(--sans)
   transition: transform .2s cubic-bezier(.3, 1.8, .5, 1), box-shadow .2s; }
 .lifted .pin { transform: translate(-4px, -13px) scale(1.18); box-shadow: 12px 20px 7px rgba(0, 0, 0, .22), inset -1px -2px 3px rgba(0, 0, 0, .25); }
 .pin:hover { transform: scale(1.15); }
-.tape { position: absolute; width: 88px; height: 25px; margin: -12.5px -44px; rotate: var(--r); cursor: pointer; z-index: 1;
+.tape { position: absolute; width: var(--l, 88px); height: 25px; margin: -12.5px calc(var(--l, 88px) / -2); rotate: var(--r); cursor: pointer; z-index: 1;
   background: repeating-linear-gradient(90deg, rgba(255, 255, 255, .22) 0 5px, transparent 5px 10px), var(--c);
-  clip-path: polygon(0 0, 3% 20%, 0 40%, 3% 60%, 0 80%, 3% 100%, 97% 100%, 100% 80%, 97% 60%, 100% 40%, 97% 20%, 100% 0); }
+  clip-path: polygon(0 0, 3px 20%, 0 40%, 3px 60%, 0 80%, 3px 100%, calc(100% - 3px) 100%, 100% 80%, calc(100% - 3px) 60%, 100% 40%, calc(100% - 3px) 20%, 100% 0); }
+.tend { position: absolute; top: 0; bottom: 0; width: 16px; cursor: col-resize; }
+.tend[data-end="-1"] { left: 0; } .tend[data-end="1"] { right: 0; }
+.tend:hover { background: rgba(255, 255, 255, .45); }
 body.yarning #viewport, body.yarning .item { cursor: default; }
 body.yarning .pin { cursor: crosshair; box-shadow: 0 0 0 4px rgba(255, 255, 255, .55), 3px 5px 3px rgba(0, 0, 0, .38); }
 
@@ -170,3 +173,5 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   background: rgba(38, 28, 20, .92); color: #f3ece2; font-size: 13px; box-shadow: 0 8px 28px rgba(0, 0, 0, .4); }
 .md .katex { font-size: 1.08em; }
 .md .katex-display { margin: .7em 0; overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
+#yarn g.sel .yh { cursor: ns-resize; }
+.yk { fill: #fff; stroke: #5b4632; pointer-events: all; cursor: ns-resize; }

@@ -165,7 +165,7 @@ function renderItem(it) {
   el.innerHTML = `<div class="paper" style="clip-path:${clip(it)}"><div class="content md f-${it.font || 'sans'}">${inner}</div></div>`
     + it.f.map((f) => f.k === 'pin'
       ? `<div class="pin" data-f="${f.id}" style="left:${f.x * 100}%;top:${f.y * 100}%;--c:${PINS[f.c]}"></div>`
-      : `<div class="tape" data-f="${f.id}" style="left:${f.x * 100}%;top:${f.y * 100}%;--c:${TAPES[f.c]};--r:${f.r}deg"></div>`).join('')
+      : `<div class="tape" data-f="${f.id}" style="left:${f.x * 100}%;top:${f.y * 100}%;--c:${TAPES[f.c]};--r:${f.r}deg;--l:${f.l || 88}px"><i class="tend" data-end="-1"></i><i class="tend" data-end="1"></i></div>`).join('')
     + '<div class="handle resize" title="Resize"></div><div class="handle rotate" title="Rotate"></div>';
   if (it.type !== 'code') el.querySelectorAll('pre code').forEach((c) => hljs.highlightElement(c));
   return el;
@@ -185,17 +185,20 @@ function pinPos(ref) {
   const r = p.getBoundingClientRect();
   return toWorld(r.left + r.width / 2, r.top + r.height / 2);
 }
-function yarnD(a, b) {
-  const sag = Math.min(90, Math.hypot(b[0] - a[0], b[1] - a[1]) * 0.16) + 6;
-  return `M${a[0]},${a[1]} Q${(a[0] + b[0]) / 2},${(a[1] + b[1]) / 2 + sag} ${b[0]},${b[1]}`;
+const maxSag = (d) => clamp(d * 0.38, 24, 190);
+function yarnGeo(a, b, sl = 0.45) {
+  const max = maxSag(Math.hypot(b[0] - a[0], b[1] - a[1])), sag = sl * max, mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+  return { d: `M${a[0]},${a[1]} Q${mx},${my + sag} ${b[0]},${b[1]}`, mid: [mx, my + sag / 2], sag, max };
 }
+const yarnD = (a, b, sl) => yarnGeo(a, b, sl).d;
 function drawYarn() {
   let h = '';
   S.yarns = S.yarns.filter((y) => {
     const a = pinPos(y.a), b = pinPos(y.b);
     if (!a || !b) return false;
-    const d = yarnD(a, b);
-    h += `<g data-y="${y.id}" class="${selYarn === y.id ? 'sel' : ''}" style="--c:${y.c}"><path class="yh" d="${d}"/><path class="ys" d="${d}"/><path class="yt" d="${d}"/></g>`;
+    const g = yarnGeo(a, b, y.sl), d = g.d, on = selYarn === y.id;
+    h += `<g data-y="${y.id}" class="${on ? 'sel' : ''}" style="--c:${y.c}"><path class="yh" d="${d}"/><path class="ys" d="${d}"/><path class="yt" d="${d}"/>${
+      on ? `<circle class="yk" cx="${g.mid[0]}" cy="${g.mid[1]}" r="${7 / V.s}" stroke-width="${2 / V.s}"/>` : ''}</g>`;
     return true;
   });
   if (tempYarn?.[0]) { const d = yarnD(...tempYarn); h += `<g style="--c:${YARNS[0]}"><path class="ys" d="${d}"/><path class="yt" d="${d}"/></g>`; }
@@ -260,7 +263,8 @@ bar.addEventListener('click', (e) => {
   const h = els.get(it.id).offsetHeight;
   if (act === 'pin') it.f.push({ id: uid(), k: 'pin', x: 0.15 + Math.random() * 0.7, y: Math.min(0.3, 14 / h), c: (Math.random() * PINS.length) | 0 });
   if (act === 'tape') it.f.push({ id: uid(), k: 'tape', x: 0.5, y: 2 / h, c: (Math.random() * TAPES.length) | 0, r: +(Math.random() * 12 - 6).toFixed(1) });
-  refresh(it); buildBar(); commit();
+  refresh(it); if (act === 'tape') tapeSettle(it);
+  buildBar(); commit();
 });
 
 /* ---------- adding things ---------- */
@@ -415,24 +419,104 @@ function contains(it, px, py) {
   const dx = px - it.x - hw, dy = py - it.y - hh;
   return Math.abs(dx * Math.cos(a) - dy * Math.sin(a)) <= hw && Math.abs(dx * Math.sin(a) + dy * Math.cos(a)) <= hh;
 }
-function stuckTo(it) {
-  if (!STICKS_TO.includes(it.type)) return [];
-  return S.items.filter((s) => {
-    if (!isSticky(s) || hasPin(s) || s.z < it.z) return false;
-    const px = s.x + s.w / 2, py = s.y + els.get(s.id).offsetHeight / 2;
-    let top = null;
-    for (const o of S.items) if (o.z < s.z && !(isSticky(o) && !hasPin(o)) && (!top || o.z > top.z) && contains(o, px, py)) top = o;
-    return top === it;
-  }).sort((a, b) => a.z - b.z);
+function quad(it) { // the paper's four corners on the board
+  const hw = it.w / 2, hh = els.get(it.id).offsetHeight / 2, cx = it.x + hw, cy = it.y + hh;
+  const a = (it.rot * Math.PI) / 180, co = Math.cos(a), si = Math.sin(a);
+  return [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]].map(([x, y]) => [cx + x * co - y * si, cy + x * si + y * co]);
+}
+function polyArea(p) {
+  let s = 0;
+  for (let i = 0; i < p.length; i++) { const q = p[(i + 1) % p.length]; s += p[i][0] * q[1] - q[0] * p[i][1]; }
+  return Math.abs(s) / 2;
+}
+function overlap(qa, qb) { // shared area of two papers (Sutherland–Hodgman clipping)
+  let out = qa;
+  for (let i = 0; i < qb.length && out.length; i++) {
+    const A = qb[i], B = qb[(i + 1) % qb.length], ex = B[0] - A[0], ey = B[1] - A[1], inp = out;
+    const inside = (p) => ex * (p[1] - A[1]) - ey * (p[0] - A[0]) >= 0;
+    out = [];
+    for (let j = 0; j < inp.length; j++) {
+      const P = inp[j], Q = inp[(j + 1) % inp.length], pi = inside(P);
+      if (pi) out.push(P);
+      if (pi !== inside(Q)) {
+        const dx = Q[0] - P[0], dy = Q[1] - P[1], t = ((A[0] - P[0]) * ey - (A[1] - P[1]) * ex) / (dx * ey - dy * ex);
+        out.push([P[0] + t * dx, P[1] + t * dy]);
+      }
+    }
+  }
+  return out.length > 2 ? polyArea(out) : 0;
+}
+/* Tape joins its paper to whatever paper it reaches onto. */
+function tapeLinks() {
+  const links = [];
+  for (const a of S.items) {
+    const tapes = a.f.filter((f) => f.k === 'tape');
+    if (!tapes.length) continue;
+    const W = a.w, H = els.get(a.id).offsetHeight, cx = a.x + W / 2, cy = a.y + H / 2;
+    const ar = (a.rot * Math.PI) / 180, co = Math.cos(ar), si = Math.sin(ar), qa = quad(a);
+    for (const f of tapes) {
+      const r = ((f.r || 0) * Math.PI) / 180, l = f.l || 88, ux = Math.cos(r), uy = Math.sin(r), hit = new Set();
+      for (const t of [-0.46, -0.23, 0, 0.23, 0.46]) for (const n of [-8, 8]) {
+        const lx = (f.x - 0.5) * W + t * l * ux - n * uy, ly = (f.y - 0.5) * H + t * l * uy + n * ux;
+        const px = cx + lx * co - ly * si, py = cy + lx * si + ly * co;
+        if (contains(a, px, py)) continue; // this bit of tape is on its own paper
+        let below = null, beside = null;
+        for (const b of S.items) {
+          if (b === a || !contains(b, px, py)) continue;
+          if (b.z < a.z) { if (!below || b.z > below.z) below = b; }
+          else if (!overlap(qa, quad(b)) && (!beside || b.z > beside.z)) beside = b;
+        }
+        if (beside || below) hit.add(beside || below);
+      }
+      for (const b of hit) links.push([a, b]);
+    }
+  }
+  return links;
+}
+/* A pinless, untaped sticky clings to the page it overlaps most (at least a fifth of the sticky). */
+function stickyHome(s) {
+  const qs = quad(s), need = polyArea(qs) * 0.2, px = s.x + s.w / 2, py = s.y + els.get(s.id).offsetHeight / 2;
+  let best = null, bestA = 0;
+  for (const p of S.items) {
+    if (!STICKS_TO.includes(p.type) || p.z > s.z) continue;
+    const a = overlap(qs, quad(p));
+    if (a < need || a < bestA || (a === bestA && best && best.z > p.z)) continue;
+    const blocked = S.items.some((o) => o.z > p.z && o.z < s.z && !STICKS_TO.includes(o.type)
+      && !(isSticky(o) && !hasPin(o)) && contains(o, px, py));
+    if (!blocked) { best = p; bestA = a; }
+  }
+  return best;
+}
+function stickyHomes(links) {
+  const taped = new Set(links.flat()), homes = new Map();
+  for (const s of S.items) if (isSticky(s) && !hasPin(s) && !taped.has(s)) { const h = stickyHome(s); if (h) homes.set(s, h); }
+  return homes;
+}
+function group(it) { // everything that travels with this paper
+  const links = tapeLinks(), homes = stickyHomes(links), set = new Set([it]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const [a, b] of links) if (set.has(a) !== set.has(b)) { set.add(a); set.add(b); grew = true; }
+    for (const [s, h] of homes) if (set.has(h) && !set.has(s)) { set.add(s); grew = true; }
+  }
+  set.delete(it);
+  return [...set];
+}
+function raise(items) { // bring to the front, keeping their order among themselves
+  for (const i of [...items].sort((a, b) => a.z - b.z)) { i.z = ++zTop; els.get(i.id).style.zIndex = i.z; }
+}
+function tapeSettle(it) { // tape reaching onto a neighbouring paper has to lie on top of it
+  const links = tapeLinks();
+  if (!links.some(([a, b]) => a === it && b.z > it.z)) return;
+  raise([it, ...[...stickyHomes(links)].filter(([, h]) => h === it).map(([s]) => s)]);
 }
 function carryStart(it, el) {
-  const cx = it.x + it.w / 2, cy = it.y + el.offsetHeight / 2;
-  const list = stuckTo(it).map((s) => {
+  const cx = it.x + it.w / 2, cy = it.y + el.offsetHeight / 2, mates = group(it);
+  const list = mates.map((s) => {
     const sEl = els.get(s.id), hh = sEl.offsetHeight / 2;
     return { s, el: sEl, hh, ox: s.x + s.w / 2 - cx, oy: s.y + hh - cy, r0: s.rot, pr0: it.rot };
   });
-  it.z = ++zTop; el.style.zIndex = it.z;
-  for (const c of list) { c.s.z = ++zTop; c.el.style.zIndex = c.s.z; }
+  raise([it, ...mates]);
   return list;
 }
 function carryMove(list, it, el, sway = 0) {
@@ -485,21 +569,46 @@ function rotateItem(e, it, el, carried) {
   const a0 = ang(e), r0 = it.rot;
   drag(e, (ev) => { it.rot = +(r0 + ang(ev) - a0).toFixed(1); if (Math.abs(it.rot) < 1.2) it.rot = 0; place(el, it); carryMove(carried, it, el); drawYarn(); positionBar(); }, commit);
 }
+function toLocal(it, el, cx, cy) { // pointer → px from the paper's centre, in the paper's own frame
+  const [mx, my] = center(el), a = (-it.rot * Math.PI) / 180, wx = (cx - mx) / V.s, wy = (cy - my) / V.s;
+  return [wx * Math.cos(a) - wy * Math.sin(a), wx * Math.sin(a) + wy * Math.cos(a)];
+}
 function dragFastener(e, it, el, fEl) {
   const f = it.f.find((f) => f.id === fEl.dataset.f), sx = e.clientX, sy = e.clientY;
+  const end = +(e.target.closest?.('.tend')?.dataset.end || 0); // pulling a tape end stretches and turns it
+  const W = el.offsetWidth, H = el.offsetHeight, l0 = f.l || 88, r0 = ((f.r || 0) * Math.PI) / 180;
+  const fixed = [(f.x - 0.5) * W - (end * l0 / 2) * Math.cos(r0), (f.y - 0.5) * H - (end * l0 / 2) * Math.sin(r0)];
   let moved = false;
   drag(e, (ev) => {
     if (!moved && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 4) return;
     moved = true;
-    const [cx, cy] = center(el), a = (-it.rot * Math.PI) / 180;
-    const wx = (ev.clientX - cx) / V.s, wy = (ev.clientY - cy) / V.s;
-    f.x = clamp((wx * Math.cos(a) - wy * Math.sin(a)) / el.offsetWidth + 0.5, -0.04, 1.04);
-    f.y = clamp((wx * Math.sin(a) + wy * Math.cos(a)) / el.offsetHeight + 0.5, -0.04, 1.04);
+    const [lx, ly] = toLocal(it, el, ev.clientX, ev.clientY);
+    if (end) {
+      const dx = (lx - fixed[0]) * end, dy = (ly - fixed[1]) * end, len = clamp(Math.hypot(dx, dy), 36, 800), ang = Math.atan2(dy, dx);
+      f.l = Math.round(len); f.r = +((ang * 180) / Math.PI).toFixed(1);
+      f.x = (fixed[0] + (end * len / 2) * Math.cos(ang)) / W + 0.5; f.y = (fixed[1] + (end * len / 2) * Math.sin(ang)) / H + 0.5;
+      fEl.style.setProperty('--l', f.l + 'px'); fEl.style.setProperty('--r', f.r + 'deg');
+    } else {
+      const m = f.k === 'tape' ? 0.12 : 0.04;
+      f.x = clamp(lx / W + 0.5, -m, 1 + m); f.y = clamp(ly / H + 0.5, -m, 1 + m);
+    }
     fEl.style.left = f.x * 100 + '%'; fEl.style.top = f.y * 100 + '%'; drawYarn();
   }, () => {
     if (!moved) { f.c = (f.c + 1) % (f.k === 'pin' ? PINS : TAPES).length; refresh(it); }
+    else if (f.k === 'tape') tapeSettle(it);
     commit();
   });
+}
+function dragYarn(e, y) { // pull the thread down to slacken it, up to pull it taut
+  const a = pinPos(y.a), b = pinPos(y.b); if (!a || !b) return;
+  const g = yarnGeo(a, b, y.sl), sy = e.clientY;
+  let moved = false;
+  drag(e, (ev) => {
+    if (!moved && Math.abs(ev.clientY - sy) < 4) return;
+    moved = true;
+    y.sl = +(clamp(g.sag + ((ev.clientY - sy) / V.s) * 2, 0, g.max) / g.max).toFixed(3);
+    drawYarn(); positionBar();
+  }, () => { if (moved) commit(); });
 }
 function startYarn(e, it, fEl) {
   const a = [it.id, fEl.dataset.f];
@@ -526,7 +635,11 @@ vp.addEventListener('pointerdown', (e) => {
       () => { vp.classList.remove('panning'); save(); });
     return;
   }
-  if (yEl) { select(null); selYarn = yEl.dataset.y; drawYarn(); buildBar(); return; }
+  if (yEl) {
+    select(null); selYarn = yEl.dataset.y; drawYarn(); buildBar();
+    dragYarn(e, S.yarns.find((y) => y.id === selYarn));
+    return;
+  }
   if (tool === 'yarn') { if (fEl?.matches('.pin')) startYarn(e, it, fEl); return; }
   if (fEl) return dragFastener(e, it, itEl, fEl);
   const carried = carryStart(it, itEl);
