@@ -8,7 +8,9 @@ import '@fontsource/jetbrains-mono/400.css';
 import '@fontsource/jetbrains-mono/700.css';
 import 'highlight.js/styles/github.css';
 import './style.css';
+import 'katex/dist/katex.min.css';
 import { marked } from 'marked';
+import markedKatex from 'marked-katex-extension';
 import DOMPurify from 'dompurify';
 import hljs from 'highlight.js/lib/common';
 import { get, set } from 'idb-keyval';
@@ -22,12 +24,16 @@ const PINS = ['#d7352a', '#f2b01e', '#2f7de1', '#1f9d57', '#f4f1ea', '#2a2a2e'];
 const TAPES = ['rgba(246,217,139,.82)', 'rgba(242,167,184,.8)', 'rgba(160,214,198,.8)', 'rgba(178,194,240,.8)', 'rgba(232,226,208,.85)'];
 const YARNS = ['#d7352a', '#2f6fd1', '#1f9d57', '#f2b01e', '#f4f1ea', '#2a2a2e'];
 const STICKY = ['#fdf08a', '#ffb3c7', '#a9e2f5', '#b9eeb0', '#ffc98a', '#d9c2ff'];
+const CARD = ['#c9493b', '#7a1f3d', '#d1249b', '#3f3aa8', '#17b3a8', '#e0a526', '#2e8b57', '#1d1b1a'];
+const STICKS_TO = ['pdf', 'code', 'scrap'];
+const isSticky = (i) => i.type === 'sticky' || i.type === 'mini';
+const hasPin = (i) => i.f.some((f) => f.k === 'pin');
 const FONTS = { sans: 'Sans', hand: 'Hand', serif: 'Serif', plain: 'Plain', mono: 'Mono' };
 const TEXT = ['sticky', 'mini', 'card', 'scrap', 'code'];
 const DEF = {
   sticky: { w: 220, font: 'hand', fs: 20, c: STICKY[0] },
   mini: { w: 112, font: 'hand', fs: 14, c: STICKY[1] },
-  card: { w: 360, font: 'serif', fs: 19 },
+  card: { w: 360, font: 'serif', fs: 19, c: CARD[0] },
   scrap: { w: 340, font: 'sans', fs: 15 },
   code: { w: 500, font: 'mono', fs: 12.5 },
   photo: { w: 300 },
@@ -47,10 +53,21 @@ const toWorld = (cx, cy) => [(cx - V.x) / V.s, (cy - V.y) / V.s];
 const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 /* ---------- persistence + undo ---------- */
-let saveT;
+const vault = window.vault;
+let vaultUrl = '', saveT;
+const assetSrc = (id) => assets[id] || (vaultUrl ? `${vaultUrl}/assets/${id}.jpg` : '');
 function save() {
-  set('board', { S, V });
-  if (assetsDirty) { set('assets', assets); assetsDirty = false; }
+  clearTimeout(saveT);
+  if (vault) vault.save(JSON.stringify({ S, V }));
+  else { set('board', { S, V }); if (assetsDirty) { set('assets', assets); assetsDirty = false; } }
+}
+addEventListener('beforeunload', () => {
+  if (editing) document.activeElement?.blur();
+  if (vault) vault.saveSync(JSON.stringify({ S, V }));
+});
+function toast(msg) {
+  const t = document.createElement('div'); t.id = 'toast'; t.textContent = msg;
+  document.body.append(t); setTimeout(() => t.remove(), 7000);
 }
 function commit() {
   const j = JSON.stringify(S);
@@ -96,6 +113,7 @@ corkImg.src = corkUrl;
 
 /* ---------- markdown ---------- */
 marked.use({ gfm: true, breaks: true });
+marked.use(markedKatex({ throwOnError: false, nonStandard: true, output: 'html', strict: 'ignore' }));
 function md(t) {
   let h = marked.parse(t.replace(/==([^=\n]+)==/g, '<mark>$1</mark>').replace(/\[\[([^\]\n]+)\]\]/g, '<a class="wikilink">$1</a>'));
   h = h.replace(/<blockquote>\s*<p>\[!(\w+)\][+-]?[ \t]*([^\n<]*)/g, (m, k, title) =>
@@ -141,7 +159,7 @@ function renderItem(it) {
   el.style.setProperty('--w', it.w + 'px'); el.style.setProperty('--fs', (it.fs || 15) + 'px');
   if (it.c) el.style.setProperty('--c', it.c);
   let inner;
-  if (it.asset) inner = `<img draggable="false" src="${assets[it.asset] || ''}" style="aspect-ratio:${1 / (it.ar || 1)}">`;
+  if (it.asset) inner = `<img draggable="false" src="${assetSrc(it.asset)}" style="aspect-ratio:${1 / (it.ar || 1)}">`;
   else if (it.type === 'code') inner = it.text ? `<pre><code class="hljs">${codeHtml(it)}</code></pre>` : '<span class="empty">Double-click to paste code</span>';
   else inner = it.text.trim() ? md(it.text) : '<span class="empty">Double-click to write</span>';
   el.innerHTML = `<div class="paper" style="clip-path:${clip(it)}"><div class="content md f-${it.font || 'sans'}">${inner}</div></div>`
@@ -202,7 +220,8 @@ function buildBar() {
       h += Object.entries(FONTS).map(([k, n]) => `<button data-act="font" data-v="${k}" class="f-${k}${it.font === k ? ' on' : ''}">${n}</button>`).join('');
       h += '<i class="sep"></i><button data-act="fs" data-v="0.88" title="Smaller text">A−</button><button data-act="fs" data-v="1.14" title="Bigger text">A+</button><i class="sep"></i>';
     }
-    if (it.type === 'sticky' || it.type === 'mini') h += sw(STICKY, 'col') + '<i class="sep"></i>';
+    if (isSticky(it)) h += sw(STICKY, 'col') + '<i class="sep"></i>';
+    if (it.type === 'card') h += sw(CARD, 'col') + '<i class="sep"></i>';
     h += '<button data-act="pin">+ Pin</button><button data-act="tape">+ Tape</button><button data-act="dup">Copy</button>';
   }
   bar.innerHTML = h + '<i class="sep"></i><button data-act="del">Remove</button>';
@@ -250,12 +269,12 @@ function addItem(type, props = {}, pos) {
   const tilt = type === 'code' || type === 'pdf' ? 2 : 6;
   const it = {
     id: uid(), type, text: '', rot: +(Math.random() * tilt - tilt / 2).toFixed(1), seed: (Math.random() * 1e9) | 0, z: ++zTop,
-    ...DEF[type], ...props, f: [{ id: uid(), k: 'pin', x: 0.5, y: 0.05, c: (Math.random() * PINS.length) | 0 }],
+    ...DEF[type], ...props, f: type === 'sticky' || type === 'mini' ? [] : [{ id: uid(), k: 'pin', x: 0.5, y: 0.05, c: (Math.random() * PINS.length) | 0 }],
   };
   it.x = c[0] - it.w / 2; it.y = c[1] - 30;
   S.items.push(it);
   const el = renderItem(it);
-  it.f[0].y = Math.min(0.25, 14 / el.offsetHeight);
+  if (it.f[0]) it.f[0].y = Math.min(0.25, 14 / el.offsetHeight);
   renderItem(it); el.classList.add('landing');
   select(it.id); commit();
   return it;
@@ -265,6 +284,7 @@ function loadImage(src) {
 }
 function putAsset(canvas) {
   const id = uid(); assets[id] = canvas.toDataURL('image/jpeg', 0.88); assetsDirty = true;
+  vault?.asset(id, assets[id]);
   return { asset: id, ar: canvas.height / canvas.width };
 }
 async function addPhoto(file, pos) {
@@ -389,23 +409,64 @@ function drag(e, onMove, onEnd) {
 }
 function center(el) { const r = el.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }
 
-function dragItem(e, it, el) {
+/* Pinless stickies cling to the page, PDF or code reel directly beneath them. */
+function contains(it, px, py) {
+  const el = els.get(it.id), hw = it.w / 2, hh = el.offsetHeight / 2, a = (-it.rot * Math.PI) / 180;
+  const dx = px - it.x - hw, dy = py - it.y - hh;
+  return Math.abs(dx * Math.cos(a) - dy * Math.sin(a)) <= hw && Math.abs(dx * Math.sin(a) + dy * Math.cos(a)) <= hh;
+}
+function stuckTo(it) {
+  if (!STICKS_TO.includes(it.type)) return [];
+  return S.items.filter((s) => {
+    if (!isSticky(s) || hasPin(s) || s.z < it.z) return false;
+    const px = s.x + s.w / 2, py = s.y + els.get(s.id).offsetHeight / 2;
+    let top = null;
+    for (const o of S.items) if (o.z < s.z && !(isSticky(o) && !hasPin(o)) && (!top || o.z > top.z) && contains(o, px, py)) top = o;
+    return top === it;
+  }).sort((a, b) => a.z - b.z);
+}
+function carryStart(it, el) {
+  const cx = it.x + it.w / 2, cy = it.y + el.offsetHeight / 2;
+  const list = stuckTo(it).map((s) => {
+    const sEl = els.get(s.id), hh = sEl.offsetHeight / 2;
+    return { s, el: sEl, hh, ox: s.x + s.w / 2 - cx, oy: s.y + hh - cy, r0: s.rot, pr0: it.rot };
+  });
+  it.z = ++zTop; el.style.zIndex = it.z;
+  for (const c of list) { c.s.z = ++zTop; c.el.style.zIndex = c.s.z; }
+  return list;
+}
+function carryMove(list, it, el, sway = 0) {
+  const cx = it.x + it.w / 2, cy = it.y + el.offsetHeight / 2;
+  for (const c of list) {
+    const put = (deg) => {
+      const a = (deg * Math.PI) / 180, co = Math.cos(a), si = Math.sin(a);
+      return [cx + c.ox * co - c.oy * si - c.s.w / 2, cy + c.ox * si + c.oy * co - c.hh];
+    };
+    const d = it.rot - c.pr0;
+    [c.s.x, c.s.y] = put(d); c.s.rot = +(c.r0 + d).toFixed(1);
+    const [vx, vy] = put(d + sway);
+    c.el.style.left = vx + 'px'; c.el.style.top = vy + 'px'; c.el.style.transform = `rotate(${c.s.rot + sway}deg)`;
+  }
+}
+
+function dragItem(e, it, el, carried) {
   let moved = false, active = true, vx = 0, sway = 0, sv = 0, px = e.clientX, py = e.clientY;
   const sx = px, sy = py;
   const tick = () => {
     const target = active ? clamp(vx * 0.9, -9, 9) : 0;
     sv = (sv + (target - sway) * 0.14) * 0.8; sway += sv; vx *= 0.8;
     const done = !active && Math.abs(sway) < 0.05 && Math.abs(sv) < 0.05;
-    place(el, it, done ? 0 : sway); drawYarn(); positionBar();
+    place(el, it, done ? 0 : sway); carryMove(carried, it, el, done ? 0 : sway); drawYarn(); positionBar();
     if (!done) requestAnimationFrame(tick);
   };
   drag(e, (ev) => {
     if (!moved && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 4) return;
-    if (!moved) { moved = true; el.classList.add('lifted'); requestAnimationFrame(tick); }
+    if (!moved) { moved = true; el.classList.add('lifted'); carried.forEach((c) => c.el.classList.add('lifted')); requestAnimationFrame(tick); }
     const dx = ev.clientX - px, dy = ev.clientY - py; px = ev.clientX; py = ev.clientY;
     it.x += dx / V.s; it.y += dy / V.s; vx += dx * 0.22;
   }, () => {
-    active = false; el.classList.remove('lifted');
+    active = false; el.classList.remove('lifted'); carried.forEach((c) => c.el.classList.remove('lifted'));
+    carryMove(carried, it, el, 0);
     if (moved) { commit(); setTimeout(drawYarn, 260); }
   });
 }
@@ -419,10 +480,10 @@ function resizeItem(e, it, el) {
     drawYarn(); positionBar();
   }, commit);
 }
-function rotateItem(e, it, el) {
+function rotateItem(e, it, el, carried) {
   const [cx, cy] = center(el), ang = (ev) => (Math.atan2(ev.clientY - cy, ev.clientX - cx) * 180) / Math.PI;
   const a0 = ang(e), r0 = it.rot;
-  drag(e, (ev) => { it.rot = +(r0 + ang(ev) - a0).toFixed(1); if (Math.abs(it.rot) < 1.2) it.rot = 0; place(el, it); drawYarn(); positionBar(); }, commit);
+  drag(e, (ev) => { it.rot = +(r0 + ang(ev) - a0).toFixed(1); if (Math.abs(it.rot) < 1.2) it.rot = 0; place(el, it); carryMove(carried, it, el); drawYarn(); positionBar(); }, commit);
 }
 function dragFastener(e, it, el, fEl) {
   const f = it.f.find((f) => f.id === fEl.dataset.f), sx = e.clientX, sy = e.clientY;
@@ -468,11 +529,11 @@ vp.addEventListener('pointerdown', (e) => {
   if (yEl) { select(null); selYarn = yEl.dataset.y; drawYarn(); buildBar(); return; }
   if (tool === 'yarn') { if (fEl?.matches('.pin')) startYarn(e, it, fEl); return; }
   if (fEl) return dragFastener(e, it, itEl, fEl);
-  it.z = ++zTop; itEl.style.zIndex = it.z;
+  const carried = carryStart(it, itEl);
   select(it.id);
   if (/\bresize\b/.test(cls)) return resizeItem(e, it, itEl);
-  if (/\brotate\b/.test(cls)) return rotateItem(e, it, itEl);
-  dragItem(e, it, itEl);
+  if (/\brotate\b/.test(cls)) return rotateItem(e, it, itEl, carried);
+  dragItem(e, it, itEl, carried);
 });
 vp.addEventListener('contextmenu', (e) => {
   e.preventDefault();
@@ -492,6 +553,13 @@ addEventListener('keydown', (e) => {
   else if (mod && e.key === 'd') { e.preventDefault(); duplicate(); }
   else if (mod && e.key === '0') zoomBtn.click();
 });
+let midAt = 0;
+for (const ev of ['mousedown', 'mouseup', 'auxclick']) {
+  addEventListener(ev, (e) => { if (e.button === 1) { midAt = Date.now(); e.preventDefault(); } }, true);
+}
+addEventListener('paste', (e) => {
+  if (Date.now() - midAt < 600) { e.preventDefault(); e.stopImmediatePropagation(); }
+}, true);
 addEventListener('paste', (e) => {
   if (editing) return;
   const files = [...e.clipboardData.files];
@@ -513,16 +581,28 @@ addEventListener('resize', positionBar);
 function welcome() {
   const cx = innerWidth / 2, cy = innerHeight / 2;
   addItem('card', { text: '# My Corkboard\nPin anything. Move everything.' }, toWorld(cx, cy - 300));
-  addItem('sticky', { text: 'Double-click me to write.\n\nDrag me by the paper, **not** the pin.' }, toWorld(cx - 330, cy - 120));
+  addItem('sticky', { text: 'Double-click me to write.\n\nStick me on a page and I travel with it.' }, toWorld(cx - 330, cy - 120));
   addItem('scrap', { text: '## Things to try\n- [x] Paste a screenshot (Ctrl+V)\n- [ ] Drop a PDF and tear out a page\n- [ ] Drop a `.md` or code file\n- [ ] Pick **Yarn**, then drag from pin to pin\n\n> [!tip] Pins\n> Click a pin to change its colour, drag to move it, right-click to pull it out.\n\nNotes understand ==Markdown==, like [[Obsidian]].' }, toWorld(cx + 20, cy - 110));
   addItem('code', { lang: 'js', w: 380, text: 'function pin(thing, board) {\n  board.push({ ...thing, tilt: Math.random() * 6 - 3 });\n  return board;\n}' }, toWorld(cx + 420, cy - 60));
   addItem('mini', { text: 'tiny!' }, toWorld(cx - 380, cy + 170));
   select(null);
 }
 (async () => {
-  const [b, a] = await Promise.all([get('board'), get('assets')]).catch(() => []);
+  let b, a, migrated = false;
+  if (vault) {
+    const r = await vault.load(); vaultUrl = r.url;
+    if (r.note) toast(r.note);
+    if (r.json) b = JSON.parse(r.json);
+  }
+  if (!b) {
+    [b, a] = await Promise.all([get('board'), get('assets')]).catch(() => []);
+    if (vault && b?.S?.items?.length) { // move a board made before the vault existed
+      for (const [id, d] of Object.entries(a || {})) await vault.asset(id, d);
+      migrated = true;
+    }
+  }
   await document.fonts.ready;
   assets = a || {};
-  if (b?.S?.items?.length) { S = b.S; V = b.V || V; applyView(); renderAll(); hist.push(JSON.stringify(S)); }
+  if (b?.S?.items?.length) { S = b.S; V = b.V || V; applyView(); renderAll(); hist.push(JSON.stringify(S)); if (migrated) save(); }
   else { applyView(); welcome(); }
 })();
