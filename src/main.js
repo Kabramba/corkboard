@@ -15,6 +15,8 @@ import DOMPurify from 'dompurify';
 import hljs from 'highlight.js/lib/common';
 import { get, set } from 'idb-keyval';
 import corkUrl from './cork.svg?url';
+import { clamp, rectQuad, polyArea, overlap, yarnGeo } from './geo.mjs';
+import { initDesk, settings } from './desk.js';
 
 const $ = (s) => document.querySelector(s);
 const vp = $('#viewport'), world = $('#world'), itemsEl = $('#items'), yarnEl = $('#yarn');
@@ -48,22 +50,22 @@ const hist = [];
 const els = new Map();
 const uid = () => Math.random().toString(36).slice(2, 10);
 const byId = (id) => S.items.find((i) => i.id === id);
-const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const toWorld = (cx, cy) => [(cx - V.x) / V.s, (cy - V.y) / V.s];
 const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 /* ---------- persistence + undo ---------- */
 const vault = window.vault;
-let vaultUrl = '', saveT;
+let vaultUrl = '', vaultDir = '', saveT;
 const assetSrc = (id) => assets[id] || (vaultUrl ? `${vaultUrl}/assets/${id}.jpg` : '');
 function save() {
   clearTimeout(saveT);
-  if (vault) vault.save(JSON.stringify({ S, V }));
+  if (vault) vault.save(vaultDir, JSON.stringify({ S, V }));
   else { set('board', { S, V }); if (assetsDirty) { set('assets', assets); assetsDirty = false; } }
 }
+function flush() { if (editing) document.activeElement?.blur(); save(); }
 addEventListener('beforeunload', () => {
   if (editing) document.activeElement?.blur();
-  if (vault) vault.saveSync(JSON.stringify({ S, V }));
+  if (vault) vault.saveSync(vaultDir, JSON.stringify({ S, V }));
 });
 function toast(msg) {
   const t = document.createElement('div'); t.id = 'toast'; t.textContent = msg;
@@ -71,7 +73,7 @@ function toast(msg) {
 }
 function commit() {
   const j = JSON.stringify(S);
-  if (j !== hist.at(-1)) { hist.push(j); if (hist.length > 60) hist.shift(); }
+  if (j !== hist.at(-1)) { hist.push(j); if (hist.length > 40) hist.shift(); }
   clearTimeout(saveT); saveT = setTimeout(save, 300);
 }
 function undo() {
@@ -96,7 +98,7 @@ function zoomAt(cx, cy, f) {
 }
 vp.addEventListener('wheel', (e) => {
   e.preventDefault();
-  if (e.ctrlKey || e.metaKey) zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * (e.deltaMode ? 0.05 : 0.008)));
+  if (e.ctrlKey || e.metaKey || settings.wheelZoom) zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * (e.deltaMode ? 0.05 : 0.008)));
   else { V.x -= e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX; V.y -= e.shiftKey && !e.deltaX ? 0 : e.deltaY; applyView(); }
   clearTimeout(saveT); saveT = setTimeout(save, 400);
 }, { passive: false });
@@ -184,11 +186,6 @@ function pinPos(ref) {
   if (!p) return null;
   const r = p.getBoundingClientRect();
   return toWorld(r.left + r.width / 2, r.top + r.height / 2);
-}
-const maxSag = (d) => clamp(d * 0.38, 24, 190);
-function yarnGeo(a, b, sl = 0.45) {
-  const max = maxSag(Math.hypot(b[0] - a[0], b[1] - a[1])), sag = sl * max, mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
-  return { d: `M${a[0]},${a[1]} Q${mx},${my + sag} ${b[0]},${b[1]}`, mid: [mx, my + sag / 2], sag, max };
 }
 const yarnD = (a, b, sl) => yarnGeo(a, b, sl).d;
 function drawYarn() {
@@ -288,7 +285,8 @@ function loadImage(src) {
 }
 function putAsset(canvas) {
   const id = uid(); assets[id] = canvas.toDataURL('image/jpeg', 0.88); assetsDirty = true;
-  vault?.asset(id, assets[id]);
+  // Once the picture is safely on disk the in-memory copy can go; later renders read the file.
+  vault?.asset(vaultDir, id, assets[id]).then((ok) => { if (ok === true) delete assets[id]; });
   return { asset: id, ar: canvas.height / canvas.width };
 }
 async function addPhoto(file, pos) {
@@ -318,7 +316,7 @@ async function handleFiles(files, pos) {
 async function pdfPicker(file, pos) {
   const pdfjs = await import('pdfjs-dist');
   pdfjs.GlobalWorkerOptions.workerSrc = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
-  const doc = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+  const task = pdfjs.getDocument({ data: await file.arrayBuffer() }), doc = await task.promise;
   const picked = new Set();
   modal.innerHTML = `<div class="sheet"><header>Tear pages out of ${esc(file.name)}<small>${doc.numPages} pages · click the ones you want on the board</small></header>
     <div class="pages"></div><footer><button data-x>Cancel</button><button class="go" disabled>Tear out</button></footer></div>`;
@@ -336,7 +334,7 @@ async function pdfPicker(file, pos) {
     pg.classList.toggle('on'); go.disabled = !picked.size;
     go.textContent = picked.size ? `Tear out ${picked.size} page${picked.size > 1 ? 's' : ''}` : 'Tear out';
   };
-  const close = () => { modal.hidden = true; modal.innerHTML = ''; };
+  const close = () => { modal.hidden = true; modal.innerHTML = ''; task.destroy(); }; // also shuts the PDF worker down
   modal.querySelector('[data-x]').onclick = close;
   go.onclick = async () => {
     go.disabled = true; go.textContent = 'Tearing…';
@@ -420,31 +418,8 @@ function contains(it, px, py) {
   return Math.abs(dx * Math.cos(a) - dy * Math.sin(a)) <= hw && Math.abs(dx * Math.sin(a) + dy * Math.cos(a)) <= hh;
 }
 function quad(it) { // the paper's four corners on the board
-  const hw = it.w / 2, hh = els.get(it.id).offsetHeight / 2, cx = it.x + hw, cy = it.y + hh;
-  const a = (it.rot * Math.PI) / 180, co = Math.cos(a), si = Math.sin(a);
-  return [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]].map(([x, y]) => [cx + x * co - y * si, cy + x * si + y * co]);
-}
-function polyArea(p) {
-  let s = 0;
-  for (let i = 0; i < p.length; i++) { const q = p[(i + 1) % p.length]; s += p[i][0] * q[1] - q[0] * p[i][1]; }
-  return Math.abs(s) / 2;
-}
-function overlap(qa, qb) { // shared area of two papers (Sutherland–Hodgman clipping)
-  let out = qa;
-  for (let i = 0; i < qb.length && out.length; i++) {
-    const A = qb[i], B = qb[(i + 1) % qb.length], ex = B[0] - A[0], ey = B[1] - A[1], inp = out;
-    const inside = (p) => ex * (p[1] - A[1]) - ey * (p[0] - A[0]) >= 0;
-    out = [];
-    for (let j = 0; j < inp.length; j++) {
-      const P = inp[j], Q = inp[(j + 1) % inp.length], pi = inside(P);
-      if (pi) out.push(P);
-      if (pi !== inside(Q)) {
-        const dx = Q[0] - P[0], dy = Q[1] - P[1], t = ((A[0] - P[0]) * ey - (A[1] - P[1]) * ex) / (dx * ey - dy * ex);
-        out.push([P[0] + t * dx, P[1] + t * dy]);
-      }
-    }
-  }
-  return out.length > 2 ? polyArea(out) : 0;
+  const hw = it.w / 2, hh = els.get(it.id).offsetHeight / 2;
+  return rectQuad(it.x + hw, it.y + hh, hw, hh, it.rot);
 }
 /* Tape joins its paper to whatever paper it reaches onto. */
 function tapeLinks() {
@@ -674,7 +649,7 @@ addEventListener('paste', (e) => {
   if (Date.now() - midAt < 600) { e.preventDefault(); e.stopImmediatePropagation(); }
 }, true);
 addEventListener('paste', (e) => {
-  if (editing) return;
+  if (editing || e.target.matches?.('input,textarea')) return;
   const files = [...e.clipboardData.files];
   if (files.length) { e.preventDefault(); return handleFiles(files); }
   const t = e.clipboardData.getData('text/plain').trim();
@@ -701,21 +676,15 @@ function welcome() {
   select(null);
 }
 (async () => {
-  let b, a, migrated = false;
+  let b, a;
   if (vault) {
-    const r = await vault.load(); vaultUrl = r.url;
+    const r = await vault.load(); vaultUrl = r.url; vaultDir = r.dir;
     if (r.note) toast(r.note);
     if (r.json) b = JSON.parse(r.json);
-  }
-  if (!b) {
-    [b, a] = await Promise.all([get('board'), get('assets')]).catch(() => []);
-    if (vault && b?.S?.items?.length) { // move a board made before the vault existed
-      for (const [id, d] of Object.entries(a || {})) await vault.asset(id, d);
-      migrated = true;
-    }
-  }
-  await document.fonts.ready;
+  } else [b, a] = await Promise.all([get('board'), get('assets')]).catch(() => []); // plain browser, no desktop shell
+  await Promise.all([document.fonts.ready, initDesk({ flush, toast })]);
   assets = a || {};
-  if (b?.S?.items?.length) { S = b.S; V = b.V || V; applyView(); renderAll(); hist.push(JSON.stringify(S)); if (migrated) save(); }
+  if (b?.S?.items?.length) { S = b.S; V = b.V || V; applyView(); renderAll(); hist.push(JSON.stringify(S)); }
   else { applyView(); welcome(); }
+  window.__ready = true;
 })();

@@ -175,3 +175,40 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .md .katex-display { margin: .7em 0; overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
 #yarn g.sel .yh { cursor: ns-resize; }
 .yk { fill: #fff; stroke: #5b4632; pointer-events: all; cursor: ns-resize; }
+
+/* ---------- board switcher + settings ---------- */
+#chip { position: fixed; left: 16px; top: 14px; z-index: 21; max-width: 300px; padding: 8px 30px 8px 14px; border-radius: 10px; font-size: 13px; font-weight: 600;
+  color: #f3ece2; background: rgba(38, 28, 20, .86); box-shadow: 0 4px 16px rgba(0, 0, 0, .3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#chip::after { content: ''; position: absolute; right: 12px; top: 50%; margin-top: -2px; border: 5px solid transparent; border-top-color: currentColor; opacity: .7; }
+#chip:hover { background: rgba(38, 28, 20, .96); }
+#boards { position: fixed; left: 16px; top: 54px; z-index: 22; width: 400px; max-width: calc(100vw - 32px); max-height: calc(100vh - 140px); overflow: auto;
+  background: #f8f5ec; color: var(--ink); border-radius: 12px; box-shadow: 0 18px 50px rgba(0, 0, 0, .45); padding: 6px; }
+#boards[hidden] { display: none; }
+#boards h4 { margin: 8px 10px 6px; font: 700 12px var(--sans); letter-spacing: .06em; text-transform: uppercase; opacity: .55; }
+.brow { display: flex; align-items: center; gap: 8px; padding: 9px 10px; border-radius: 8px; cursor: pointer; }
+.brow:hover { background: rgba(0, 0, 0, .06); }
+.brow.cur { background: rgba(201, 73, 59, .13); cursor: default; }
+.brow.missing { opacity: .55; cursor: default; }
+.brow > div { flex: 1; min-width: 0; }
+.brow b { display: block; font-size: 14px; }
+.brow small { display: block; font-size: 11px; opacity: .6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.brow span { display: none; gap: 2px; flex: none; }
+.brow:hover span, .brow.cur span { display: flex; }
+#boards button { padding: 5px 8px; border-radius: 6px; font-size: 12px; }
+#boards button:hover { background: rgba(0, 0, 0, .1); }
+#boards button.warn { background: #c9493b; color: #fff; }
+#boards footer { display: flex; gap: 4px; margin-top: 6px; padding: 8px 4px 2px; border-top: 1px solid rgba(0, 0, 0, .1); }
+#boards footer button { font-weight: 600; padding: 7px 10px; }
+#boards footer button:last-child { margin-left: auto; }
+.sheet.small { width: min(520px, 92vw); }
+.sheet .body { padding: 10px 22px 6px; overflow: auto; user-select: text; }
+.sheet input:not([type]) { width: 100%; padding: 10px 12px; font: inherit; font-size: 15px; border: 1.5px solid rgba(0, 0, 0, .2); border-radius: 8px; background: #fff; outline: 0; }
+.sheet input:not([type]):focus { border-color: #c9493b; }
+.opt { display: flex; align-items: flex-start; gap: 12px; padding: 11px 0; border-bottom: 1px solid rgba(0, 0, 0, .08); cursor: pointer; }
+.opt input { margin-top: 3px; width: 17px; height: 17px; accent-color: #c9493b; flex: none; }
+.opt span { flex: 1; min-width: 0; }
+.opt b { display: block; font-size: 14px; }
+.opt small { display: block; font-size: 12px; opacity: .65; margin-top: 2px; overflow-wrap: anywhere; }
+.opt button { padding: 7px 12px; border-radius: 8px; background: rgba(0, 0, 0, .08); font-size: 13px; flex: none; }
+.about { font-size: 12px; opacity: .7; margin: 14px 0 4px; }
+.about a { color: var(--accent); cursor: pointer; text-decoration: underline; }
