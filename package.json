@@ -12,8 +12,9 @@
     "app": "electron . --no-sandbox",
     "test": "node --test tests/*.test.mjs && vite build && electron scripts/e2e.cjs --no-sandbox",
     "test:unit": "node --test tests/*.test.mjs",
-    "dist": "vite build && electron-builder --linux deb --publish never",
-    "shots": "vite build && electron scripts/shots.cjs --no-sandbox"
+    "dist": "vite build && electron-builder --linux deb rpm --publish never",
+    "shots": "vite build && electron scripts/shots.cjs --no-sandbox",
+    "dist:deb": "vite build && electron-builder --linux deb --publish never"
   },
   "keywords": [
     "corkboard",
@@ -70,7 +71,8 @@
     ],
     "linux": {
       "target": [
-        "deb"
+        "deb",
+        "rpm"
       ],
       "category": "Office",
       "icon": "build/icons",
@@ -89,6 +91,9 @@
     },
     "deb": {
       "artifactName": "corkboard_${version}_${arch}.deb"
+    },
+    "rpm": {
+      "artifactName": "corkboard-${version}.${arch}.rpm"
     }
   }
 }

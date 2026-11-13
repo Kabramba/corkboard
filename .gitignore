@@ -4,3 +4,5 @@ vault
 release
 .claude
 Corkboard.desktop
+*.deb
+*.rpm
