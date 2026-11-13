@@ -86,7 +86,7 @@ To back a board up or move it to another computer, copy its folder.
 - **Scroll wheel zooms** instead of moving the board.
 - **Use less memory.** Draws without the graphics card: lighter, but less smooth.
 
-Corkboard is built on Electron, so it is not tiny: with a board open it uses roughly 370 MB of memory (about 250 MB in the low-memory mode) and no measurable CPU while idle.
+Corkboard is built on Electron, so it is not tiny. Measured on Ubuntu 24.04: roughly 370 MB of memory with a board open (about 250 MB in the low-memory mode), roughly 340 MB while waiting in the tray, and no measurable CPU while idle.
 
 ## Build it yourself
 

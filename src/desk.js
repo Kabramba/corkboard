@@ -42,7 +42,7 @@ function openSettings() {
   showPanel(false);
   const opt = (k, title, sub) => `<label class="opt"><input type="checkbox" data-k="${k}"${settings[k] ? ' checked' : ''}><span><b>${title}</b><small>${sub}</small></span></label>`;
   modal.innerHTML = `<div class="sheet small"><header>Settings</header><div class="body">
-    ${opt('tray', 'Keep running in the system tray', 'Closing the window leaves Corkboard waiting in the tray. The board is unloaded, so it uses very little memory.')}
+    ${opt('tray', 'Keep running in the system tray', 'Closing the window leaves Corkboard waiting in the tray, ready to reopen. The board itself is unloaded while it waits.')}
     ${opt('autostart', 'Start when I log in', 'Opens Corkboard automatically (straight to the tray, if the option above is on).')}
     ${opt('wheelZoom', 'Scroll wheel zooms', 'Off: scrolling moves the board and Ctrl + scroll zooms.')}
     ${opt('lowMemory', 'Use less memory', 'Draws the board without the graphics card. Roughly 120 MB lighter, but dragging and zooming can feel less smooth. Takes effect after a restart.')}

@@ -1,7 +1,7 @@
 {
   "name": "corkboard",
   "productName": "Corkboard",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A pinboard for your desktop that feels like the real thing.",
   "desktopName": "corkboard.desktop",
   "main": "electron/main.js",
