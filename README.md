@@ -4,7 +4,7 @@
   <a href="https://github.com/Kabramba/corkboard/releases/latest"><img src="https://img.shields.io/github/v/release/Kabramba/corkboard?color=c9493b&label=download" alt="Latest release"></a>
   <a href="https://github.com/Kabramba/corkboard/actions/workflows/ci.yml"><img src="https://github.com/Kabramba/corkboard/actions/workflows/ci.yml/badge.svg" alt="Tests"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2e8b57" alt="MIT licence"></a>
-  <img src="https://img.shields.io/badge/platform-Debian%20%7C%20Ubuntu-3f3aa8" alt="Debian and Ubuntu">
+  <img src="https://img.shields.io/badge/packages-.deb%20%7C%20.rpm-3f3aa8" alt="deb and rpm packages">
 </p>
 
 **Corkboard** is an endless cork surface for your desktop. Stick notes on it, pin up photos, tear pages out of PDFs, hang a reel of code, and tie things together with yarn. Papers tilt, lift and sway when you move them, the way they would on a real board.
@@ -15,16 +15,23 @@ It is free, open source, works offline, and keeps your boards as plain folders o
 
 ## Install
 
-On Debian, Ubuntu and their relatives (64-bit Intel/AMD):
+**Debian, Ubuntu, Mint, Pop!_OS** (64-bit Intel/AMD):
 
 ```bash
 wget https://github.com/Kabramba/corkboard/releases/latest/download/corkboard_amd64.deb
 sudo apt install ./corkboard_amd64.deb
 ```
 
-Corkboard then appears in your applications menu. To remove it: `sudo apt remove corkboard` (your boards are left untouched).
+**Fedora, RHEL, Rocky, openSUSE** (64-bit Intel/AMD):
 
-You can also pick a specific version from the [Releases page](https://github.com/Kabramba/corkboard/releases).
+```bash
+wget https://github.com/Kabramba/corkboard/releases/latest/download/corkboard_x86_64.rpm
+sudo dnf install ./corkboard_x86_64.rpm
+```
+
+Corkboard then appears in your applications menu. To remove it: `sudo apt remove corkboard` or `sudo dnf remove corkboard` (your boards are left untouched).
+
+Every release is installed and started on fresh Ubuntu and Fedora machines before it is published. You can also pick a specific version from the [Releases page](https://github.com/Kabramba/corkboard/releases).
 
 ## What you can put on a board
 
@@ -98,7 +105,7 @@ cd corkboard
 npm install
 npm start        # build and run
 npm test         # unit tests, then an end-to-end run of the real app
-npm run dist     # build release/corkboard_<version>_amd64.deb
+npm run dist     # build the .deb and .rpm into release/ (the .rpm needs rpmbuild: sudo apt install rpm)
 ```
 
 ## Contributing

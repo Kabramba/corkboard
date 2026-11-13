@@ -36,11 +36,11 @@ npm start
 4. If you changed how something looks, add a before and after screenshot to the pull request.
 5. Open a pull request against `main` and describe what changed and why.
 
-Every pull request is tested automatically. Tagging a version (`v1.2.3`) builds the `.deb` and attaches it to a release.
+Every pull request is tested automatically. Tagging a version (`v1.2.3`) builds the `.deb` and `.rpm`, installs each on a fresh Ubuntu and Fedora machine, runs the app there, and only then attaches them to a release.
 
 ## Good first contributions
 
-- Packages for other systems (AppImage, RPM, Flatpak, arm64)
+- Packages for other systems (AppImage, Flatpak, arm64)
 - Multi-select and group move
 - Picking a section of a Markdown file instead of the whole file
 - Exporting a board as an image or PDF
