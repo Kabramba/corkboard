@@ -86,6 +86,21 @@ app.whenReady().then(async () => {
     await sleep(1200);
     check('torn-out PDF page lands on the board', (await js('return document.querySelectorAll(".item.pdf").length')) === 1);
     await sleep(600);
+    const zoomPct = () => js('return parseInt(document.querySelector("#zoom").textContent)');
+    const wheel = (dy, n = 1) => js(`for (let i = 0; i < ${n}; i++) document.querySelector("#viewport").dispatchEvent(new WheelEvent("wheel", { deltaY: ${dy}, ctrlKey: true, clientX: 400, clientY: 300, bubbles: true, cancelable: true }));`);
+    await js('window.requestAnimationFrame = (f) => setTimeout(() => f(performance.now()), 16)'); // a hidden window gets no frames of its own
+    const z0 = await zoomPct();
+    await wheel(-120);
+    const mid = await js('return new Promise((r) => requestAnimationFrame(() => r(parseInt(document.querySelector("#zoom").textContent))))');
+    await sleep(500);
+    const z1 = await zoomPct();
+    check('one mouse-wheel notch zooms a little, not across the whole range', z1 > z0 * 1.1 && z1 < z0 * 1.25, `${z0}% -> ${z1}%`);
+    check('and glides there instead of jumping', mid < z1, `${mid}% on the way to ${z1}%`);
+    await wheel(120); await sleep(500);
+    check('one notch back returns to the same zoom', Math.abs((await zoomPct()) - z0) <= 1);
+    await wheel(-120, 40); await sleep(900);
+    check('zoom still stops at its limits', (await zoomPct()) === 400);
+    await wheel(120, 12); await sleep(900);
     check('everything is saved (8 pieces, 2 images)', board(first).S.items.length === 8 && fs.readdirSync(path.join(first, 'assets')).length === 2);
 
     console.log('boards');

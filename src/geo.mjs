@@ -1,6 +1,15 @@
 // Pure geometry, kept free of the DOM so it can be unit-tested.
 export const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
+/** How far one wheel event zooms, as a change in log-scale (negative `dy` zooms in). Small touchpad
+ *  steps pass through almost unchanged; one mouse-wheel notch (about 120, or 3 lines) is held to
+ *  NOTCH, so a single click of the wheel can no longer leap across zoom levels. */
+export const NOTCH = 0.16;
+export function zoomStep(dy, lines = false) {
+  const n = Math.abs(dy) * (lines ? 40 : 1);
+  return -Math.sign(dy) * NOTCH * (n <= 120 ? Math.tanh(n / 20) : n / 120);
+}
+
 /** Corners of a rectangle centred on (cx, cy), turned by `deg` degrees. */
 export function rectQuad(cx, cy, hw, hh, deg) {
   const a = (deg * Math.PI) / 180, co = Math.cos(a), si = Math.sin(a);

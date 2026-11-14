@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { rectQuad, polyArea, overlap, maxSag, yarnGeo } from '../src/geo.mjs';
+import { rectQuad, polyArea, overlap, maxSag, yarnGeo, zoomStep, NOTCH } from '../src/geo.mjs';
 
 const near = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} ≉ ${b}`);
 
@@ -31,4 +31,14 @@ test('thread: taut is a straight line, slack is capped', () => {
   assert.equal(yarnGeo(a, b, 1).sag, maxSag(Math.hypot(400, 100)));
   assert.equal(maxSag(5), 24);
   assert.equal(maxSag(1e6), 190);
+});
+
+test('one mouse-wheel notch is a small zoom step, touchpad steps are unchanged', () => {
+  assert.ok(Math.abs(zoomStep(-120) - NOTCH) < 1e-4);            // one notch in: about 17%, not 160%
+  assert.ok(Math.abs(zoomStep(120) + NOTCH) < 1e-4);             // and the same out
+  assert.ok(Math.abs(zoomStep(-3, true) - NOTCH) < 1e-4);        // wheels that report lines
+  assert.ok(Math.abs(zoomStep(-240) - 2 * NOTCH) < 1e-9);        // a fast spin still adds up
+  assert.ok(Math.abs(zoomStep(-2) - 0.016) < 1e-3);              // small touchpad steps as before
+  assert.ok(zoomStep(0) === 0);
+  for (let d = 1; d < 400; d++) assert.ok(zoomStep(-d) >= zoomStep(-d + 1)); // never goes backwards
 });

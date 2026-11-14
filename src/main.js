@@ -15,7 +15,7 @@ import DOMPurify from 'dompurify';
 import hljs from 'highlight.js/lib/common';
 import { get, set } from 'idb-keyval';
 import corkUrl from './cork.svg?url';
-import { clamp, rectQuad, polyArea, overlap, yarnGeo } from './geo.mjs';
+import { clamp, rectQuad, polyArea, overlap, yarnGeo, zoomStep } from './geo.mjs';
 import { initDesk, settings } from './desk.js';
 
 const $ = (s) => document.querySelector(s);
@@ -96,11 +96,33 @@ function zoomAt(cx, cy, f) {
   V.x = cx - (cx - V.x) * f; V.y = cy - (cy - V.y) * f; V.s = s;
   applyView();
 }
+// A mouse wheel arrives in big notches, so the view glides to where the wheel points instead of
+// jumping there. Touchpads already send many small steps and are applied as they come.
+const glide = { z: 0, x: 0, y: 0, cx: 0, cy: 0, raf: 0, t: 0 };
+const saveSoon = () => { clearTimeout(saveT); saveT = setTimeout(save, 400); };
+function glideTick(now) {
+  const k = 1 - Math.exp(-Math.min(now - glide.t, 50) / 65); glide.t = now; // time-based: same feel at any frame rate
+  const done = Math.abs(glide.z) < 0.002 && Math.abs(glide.x) + Math.abs(glide.y) < 0.5;
+  const z = done ? glide.z : glide.z * k, x = done ? glide.x : glide.x * k, y = done ? glide.y : glide.y * k;
+  glide.z -= z; glide.x -= x; glide.y -= y;
+  V.x += x; V.y += y;
+  zoomAt(glide.cx, glide.cy, Math.exp(z));
+  glide.raf = done ? 0 : requestAnimationFrame(glideTick);
+  if (done) saveSoon();
+}
 vp.addEventListener('wheel', (e) => {
   e.preventDefault();
-  if (e.ctrlKey || e.metaKey || settings.wheelZoom) zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * (e.deltaMode ? 0.05 : 0.008)));
-  else { V.x -= e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX; V.y -= e.shiftKey && !e.deltaX ? 0 : e.deltaY; applyView(); }
-  clearTimeout(saveT); saveT = setTimeout(save, 400);
+  const zoom = e.ctrlKey || e.metaKey || settings.wheelZoom, side = e.shiftKey && !e.deltaX;
+  const px = e.deltaMode ? 40 : 1, dx = (side ? e.deltaY : e.deltaX) * px, dy = (side ? 0 : e.deltaY) * px;
+  if (e.deltaMode || Math.abs(e.deltaY) >= 50 || Math.abs(e.deltaX) >= 50) {
+    if (zoom) {
+      glide.cx = e.clientX; glide.cy = e.clientY;
+      glide.z = clamp(glide.z + zoomStep(e.deltaY, !!e.deltaMode), Math.log(0.15 / V.s), Math.log(4 / V.s));
+    } else { glide.x -= dx; glide.y -= dy; }
+    if (!glide.raf) { glide.t = performance.now(); glide.raf = requestAnimationFrame(glideTick); }
+  } else if (zoom) zoomAt(e.clientX, e.clientY, Math.exp(zoomStep(e.deltaY)));
+  else { V.x -= dx; V.y -= dy; applyView(); }
+  saveSoon();
 }, { passive: false });
 zoomBtn.onclick = () => zoomAt(innerWidth / 2, innerHeight / 2, 1 / V.s);
 
